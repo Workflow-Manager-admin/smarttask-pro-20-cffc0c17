@@ -116,11 +116,17 @@ function App() {
             : t
         )
       );
+      if (
+        typeof enhanced === "string" &&
+        enhanced.startsWith("(AI unavailable")
+      ) {
+        // Only "show" the fallback in the enhanced text, not the global error.
+      }
     } catch (err) {
       setTasks(tasks =>
         tasks.map(t =>
           t.id === id
-            ? { ...t, enhanced: "(AI unavailable)" }
+            ? { ...t, enhanced: "(AI unavailable: " + (err && err.message ? err.message : "AI error") + ")" }
             : t
         )
       );
