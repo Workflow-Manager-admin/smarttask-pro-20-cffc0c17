@@ -1,0 +1,16 @@
+{
+  "name": "smarttask-pro",
+  "version": "1.0.0",
+  "description": "Main container for SmartTask Pro – advanced ToDo app in React.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "echo Please run 'npm start' in the smarttask_pro folder",
+    "lint": "eslint smarttask_pro/src",
+    "build": "echo To build, use the scripts inside smarttask_pro/",
+    "test": "echo To test, use the scripts inside smarttask_pro/"
+  },
+  "workspaces": [
+    "smarttask_pro"
+  ]
+}
