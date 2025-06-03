@@ -172,19 +172,36 @@ function App() {
     }
 
     // Actual fetch logic
-    const resp = await fetch(API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        // API keys; use env variables or configs in production:
-        "Authorization": `Bearer ${API_KEY}`,
-      },
-      body,
-    });
-    if (!resp.ok) throw new Error("API error");
-    // SambaNova API: replace with actual field as documented (e.g., resp.json().enhanced or choices[0].text etc.)
-    const data = await resp.json();
-    // Robust retrieval: prefer enhanced_text, then choices[0].text, then generic text, fallback to placeholder with notice
+    let resp, data;
+    try {
+      resp = await fetch(API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          // API keys; use env variables or configs in production:
+          "Authorization": `Bearer ${API_KEY}`,
+        },
+        body,
+      });
+    } catch (fetchErr) {
+      // Network error etc.
+      throw new Error("Could not reach Sambanova API.");
+    }
+    if (!resp.ok) {
+      let msg = "API error";
+      try {
+        const errData = await resp.json();
+        msg += (errData && errData.error) ? `: ${errData.error}` : "";
+      } catch (_e) {}
+      throw new Error(msg);
+    }
+    try {
+      data = await resp.json();
+    } catch (parseErr) {
+      // Return fallback text, but DO NOT throw.
+      return "(AI unavailable: could not parse API JSON)";
+    }
+    // Robust retrieval: prefer enhanced_text, then choices[0].text, then generic text, fallback to debug
     let result = null;
     if (typeof data === "object" && data !== null) {
       if (typeof data.enhanced_text === "string" && data.enhanced_text.trim()) {
@@ -200,7 +217,7 @@ function App() {
       }
     }
     if (!result) {
-      // fallback: show API JSON for debug, or simple fallback message
+      // fallback: show API JSON if possible for debug, or simple fallback message
       result =
         "(AI unavailable: invalid API response) " +
         (typeof data === "object" ? JSON.stringify(data) : String(data));
