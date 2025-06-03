@@ -165,7 +165,7 @@ function App() {
 
     // ------
     // In a real app, replace credentials and CORS as needed. Output is faked if API_KEY is unset.
-    if (API_KEY === "<YOUR_SAMBANOVA_API_KEY>") {
+    if (API_KEY === "<8f824c90-f520-4c3f-b7fc-230a0900156d>") {
       // Placeholder mode (no key)
       await new Promise(res => setTimeout(res, 1000));
       return `(AI-enhanced) ${text}`;
