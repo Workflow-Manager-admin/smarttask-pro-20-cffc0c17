@@ -46,6 +46,7 @@ function App() {
     setLoadingId(tempId);
     try {
       const enhanced = await enhanceTaskText(trimmed);
+      // If enhancement "looks like" an API fallback (starts with (AI unavailable)), don't set global error.
       setTasks(tasks =>
         tasks.map(t =>
           t.id === tempId
@@ -53,11 +54,18 @@ function App() {
             : t
         )
       );
+      if (
+        typeof enhanced === "string" &&
+        enhanced.startsWith("(AI unavailable")
+      ) {
+        // Enhancement fallback, do NOT show top error,
+        // just let the enhanced text itself inform the user in the list.
+      }
     } catch (err) {
       setTasks(tasks =>
         tasks.map(t =>
           t.id === tempId
-            ? { ...t, enhanced: "(AI unavailable)" }
+            ? { ...t, enhanced: "(AI unavailable: " + (err && err.message ? err.message : "AI error") + ")" }
             : t
         )
       );
@@ -139,7 +147,7 @@ function App() {
      */
     // ----------- API INTEGRATION (CONFIG) ---------------
     const API_URL = "https://api.sambanova.ai/v1/generate";
-    const API_KEY = "<YOUR_SAMBANOVA_API_KEY>"; // <-- Place your API key here!
+    const API_KEY = "<8f824c90-f520-4c3f-b7fc-230a0900156d>"; // <-- Place your API key here!
     // Modify body as per SambaNova API requirements.
     const body = JSON.stringify({
       prompt: `Rewrite the following to-do item in a clearer, more actionable form: "${text}"`,
