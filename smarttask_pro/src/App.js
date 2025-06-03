@@ -170,11 +170,28 @@ function App() {
     if (!resp.ok) throw new Error("API error");
     // SambaNova API: replace with actual field as documented (e.g., resp.json().enhanced or choices[0].text etc.)
     const data = await resp.json();
-    if (data?.enhanced_text) return data.enhanced_text;
-    if (Array.isArray(data.choices) && data.choices[0]?.text)
-      return data.choices[0].text;
-    // fallback
-    return data.toString();
+    // Robust retrieval: prefer enhanced_text, then choices[0].text, then generic text, fallback to placeholder with notice
+    let result = null;
+    if (typeof data === "object" && data !== null) {
+      if (typeof data.enhanced_text === "string" && data.enhanced_text.trim()) {
+        result = data.enhanced_text.trim();
+      } else if (
+        Array.isArray(data.choices) &&
+        typeof data.choices[0]?.text === "string" &&
+        data.choices[0].text.trim()
+      ) {
+        result = data.choices[0].text.trim();
+      } else if (typeof data.text === "string" && data.text.trim()) {
+        result = data.text.trim();
+      }
+    }
+    if (!result) {
+      // fallback: show API JSON for debug, or simple fallback message
+      result =
+        "(AI unavailable: invalid API response) " +
+        (typeof data === "object" ? JSON.stringify(data) : String(data));
+    }
+    return result;
   }
 
   // ---- UI Render ----
