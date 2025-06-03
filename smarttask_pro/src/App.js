@@ -1,676 +1,373 @@
-import React, { useState, useRef } from 'react';
-import './App.css';
+import React, { useState, useRef } from "react";
+import "./App.css";
 
-/**
- * SmartTask Pro - Main Container
- * Features:
- * - Task CRUD (create, read, update, delete, mark complete/incomplete)
- * - Reminders and categories
- * - Progress tracking/statistics
- * - Search & filter
- * - Light theme, modern UI, with sidebar, topbar, modals
- * - Color scheme: primary (#1976D2), secondary (#424242), accent (#FFC107)
- */
-
-// THEME CONSTANTS
-const COLORS = {
-  primary: '#1976D2',
-  secondary: '#424242',
-  accent: '#FFC107',
-  background: '#f7fafd',
-  light: '#fff',
-  text: '#181818',
-  border: '#e0e0e0'
-};
-
-// Dummy default categories
-const DEFAULT_CATEGORIES = [
-  { id: 'all', name: 'All', color: COLORS.primary },
-  { id: 'work', name: 'Work', color: '#E57373' },
-  { id: 'personal', name: 'Personal', color: '#81C784' },
-  { id: 'urgent', name: 'Urgent', color: COLORS.accent }
-];
-
-const initialTasks = [
-  { id: 1, title: "Finish React task", notes: "UI, logic & modals", completed: false, category: "work", reminder: null, created: new Date(), updated: new Date() },
-  { id: 2, title: "Grocery shopping", notes: "Get milk & bread", completed: false, category: "personal", reminder: null, created: new Date(), updated: new Date() },
-  { id: 3, title: "Check email", notes: "", completed: true, category: "work", reminder: null, created: new Date(), updated: new Date() },
-  { id: 4, title: "Doctor Appointment", notes: "Fri 10am", completed: false, category: "urgent", reminder: null, created: new Date(), updated: new Date() }
-];
-
-// ---------------------------------------------
-// PUBLIC_INTERFACE (Main App)
-
+// PUBLIC_INTERFACE
 function App() {
-  // STATE
-  const [tasks, setTasks] = useState(initialTasks);
-  const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
-  const [selectedCategory, setSelectedCategory] = useState('all');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isAddEditModalOpen, setAddEditModalOpen] = useState(false);
-  const [editingTask, setEditingTask] = useState(null); // if present, edit; else add
-  const [isRemindersOpen, setRemindersOpen] = useState(false);
-  // For simple local reminders, only show upcoming tasks with reminders (if any)
-  const modalInitialFocusRef = useRef(null);
+  /**
+   * Smart To-Do List with AI Enhancement
+   * Users can add a task. Upon addition, the task text is sent to the Sambanova AI API
+   * (https://api.sambanova.ai/v1/generate) for enhancement.
+   * Each list item displays both the original and enhanced texts.
+   * Each task has edit, delete, and mark complete controls.
+   *
+   * API integration:
+   *  - The real API key and settings should be configured in the enhanceTaskText function below.
+   */
 
-  // Filtered and Searched Tasks
-  const filteredTasks = tasks.filter(task => (
-    (selectedCategory === 'all' || task.category === selectedCategory) &&
-    (searchQuery.trim().length === 0 ||
-      task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (task.notes && task.notes.toLowerCase().includes(searchQuery.toLowerCase())))
-  ));
+  // ---- State ----
+  const [tasks, setTasks] = useState([]); // {id, original, enhanced, completed}
+  const [input, setInput] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState(null);
+  const [editId, setEditId] = useState(null); // id of task being edited
+  const [editValue, setEditValue] = useState("");
+  const [loadingId, setLoadingId] = useState(null); // id of task being enhanced
 
-  // Progress Stats
-  const completedCount = filteredTasks.filter(t => t.completed).length;
-  const totalCount = filteredTasks.length;
-  const percentComplete = totalCount !== 0 ? Math.round(100 * completedCount / totalCount) : 0;
-
-  // Reminders: tasks with reminders that are not completed & time is in future
-  const upcomingReminders = tasks.filter(task =>
-    task.reminder &&
-    !task.completed &&
-    new Date(task.reminder) > new Date()
-  )
-  .sort((a, b) => new Date(a.reminder) - new Date(b.reminder));
-
-  // --- TASK CRUD HANDLERS ---
+  // ---- Handlers ----
   // PUBLIC_INTERFACE
-  function addTask(task) {
-    setTasks(prev => [
-      ...prev,
+  async function handleAddTask(e) {
+    e.preventDefault();
+    const trimmed = input.trim();
+    if (!trimmed) return;
+    setAdding(true);
+    setError(null);
+    // Create a placeholder task immediately (show spinner for enhancement)
+    const tempId = Date.now();
+    setTasks(tasks => [
+      ...tasks,
       {
-        ...task,
-        id: Date.now(),
-        created: new Date(),
-        updated: new Date()
-      }
+        id: tempId,
+        original: trimmed,
+        enhanced: null,
+        completed: false,
+      },
     ]);
-  }
-  // PUBLIC_INTERFACE
-  function updateTask(editedTask) {
-    setTasks(prev => prev.map(t => (
-      t.id === editedTask.id ? { ...editedTask, updated: new Date() } : t
-    )));
-  }
-  // PUBLIC_INTERFACE
-  function deleteTask(id) {
-    setTasks(prev => prev.filter(t => t.id !== id));
-  }
-  // PUBLIC_INTERFACE
-  function toggleComplete(id) {
-    setTasks(prev => prev.map(t =>
-      t.id === id ? { ...t, completed: !t.completed, updated: new Date() } : t
-    ));
-  }
-  // PUBLIC_INTERFACE
-  function addCategory(name, color) {
-    const id = name
-      .toLowerCase()
-      .replace(/[^a-z0-9_-]/g, '_')
-      .slice(0, 30);
-    setCategories(prev => [
-      ...prev,
-      {
-        id,
-        name,
-        color: color || '#888888'
-      }
-    ]);
+    setInput("");
+    setLoadingId(tempId);
+    try {
+      const enhanced = await enhanceTaskText(trimmed);
+      setTasks(tasks =>
+        tasks.map(t =>
+          t.id === tempId
+            ? { ...t, enhanced }
+            : t
+        )
+      );
+    } catch (err) {
+      setTasks(tasks =>
+        tasks.map(t =>
+          t.id === tempId
+            ? { ...t, enhanced: "(AI unavailable)" }
+            : t
+        )
+      );
+      setError("Failed to enhance task (AI error).");
+    }
+    setLoadingId(null);
+    setAdding(false);
   }
 
-  // --- MODAL HANDLERS ---
-  function openAddTaskModal() {
-    setEditingTask(null);
-    setAddEditModalOpen(true);
-    setTimeout(() => {
-      if (modalInitialFocusRef.current) modalInitialFocusRef.current.focus();
-    }, 50);
-  }
-  function openEditTaskModal(task) {
-    setEditingTask(task);
-    setAddEditModalOpen(true);
-    setTimeout(() => {
-      if (modalInitialFocusRef.current) modalInitialFocusRef.current.focus();
-    }, 50);
-  }
-  function closeModal() {
-    setAddEditModalOpen(false);
-    setEditingTask(null);
+  // PUBLIC_INTERFACE
+  function handleToggleComplete(id) {
+    setTasks(tasks =>
+      tasks.map(t =>
+        t.id === id ? { ...t, completed: !t.completed } : t
+      )
+    );
   }
 
-  // --- CATEGORY HANDLER ---
-  function handleCategorySelect(id) {
-    setSelectedCategory(id);
+  // PUBLIC_INTERFACE
+  function handleDelete(id) {
+    setTasks(tasks => tasks.filter(t => t.id !== id));
   }
 
-  // --- SEARCH HANDLER ---
-  function handleSearchChange(e) {
-    setSearchQuery(e.target.value);
+  // PUBLIC_INTERFACE
+  function handleEdit(id, value) {
+    setEditId(id);
+    setEditValue(value);
   }
 
-  // --- RENDER ---
+  // PUBLIC_INTERFACE
+  async function handleEditSave(id) {
+    if (!editValue.trim()) return;
+    setLoadingId(id);
+    setError(null);
+    setTasks(tasks =>
+      tasks.map(t =>
+        t.id === id
+          ? { ...t, original: editValue, enhanced: null }
+          : t
+      )
+    );
+    try {
+      const enhanced = await enhanceTaskText(editValue);
+      setTasks(tasks =>
+        tasks.map(t =>
+          t.id === id
+            ? { ...t, enhanced }
+            : t
+        )
+      );
+    } catch (err) {
+      setTasks(tasks =>
+        tasks.map(t =>
+          t.id === id
+            ? { ...t, enhanced: "(AI unavailable)" }
+            : t
+        )
+      );
+      setError("Failed to enhance task (AI error).");
+    }
+    setLoadingId(null);
+    setEditId(null);
+    setEditValue("");
+  }
+
+  function handleEditCancel() {
+    setEditId(null);
+    setEditValue("");
+  }
+
+  // ---- AI Enhancement ----
+  // PUBLIC_INTERFACE
+  async function enhanceTaskText(text) {
+    /**
+     * This function sends the task text to the Sambanova AI API to get an enhanced/clarified version.
+     * Replace the placeholder fetch call below with your actual API key and prompt/parameters.
+     * @param {string} text - Original task input
+     * @returns {string} Enhanced/clarified task string
+     */
+    // ----------- API INTEGRATION (CONFIG) ---------------
+    const API_URL = "https://api.sambanova.ai/v1/generate";
+    const API_KEY = "<YOUR_SAMBANOVA_API_KEY>"; // <-- Place your API key here!
+    // Modify body as per SambaNova API requirements.
+    const body = JSON.stringify({
+      prompt: `Rewrite the following to-do item in a clearer, more actionable form: "${text}"`,
+      // other model settings as needed
+      // model: "...",
+      // temperature: 0.4,
+      // max_tokens: 50,
+    });
+
+    // ------
+    // In a real app, replace credentials and CORS as needed. Output is faked if API_KEY is unset.
+    if (API_KEY === "<YOUR_SAMBANOVA_API_KEY>") {
+      // Placeholder mode (no key)
+      await new Promise(res => setTimeout(res, 1000));
+      return `(AI-enhanced) ${text}`;
+    }
+
+    // Actual fetch logic
+    const resp = await fetch(API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        // API keys; use env variables or configs in production:
+        "Authorization": `Bearer ${API_KEY}`,
+      },
+      body,
+    });
+    if (!resp.ok) throw new Error("API error");
+    // SambaNova API: replace with actual field as documented (e.g., resp.json().enhanced or choices[0].text etc.)
+    const data = await resp.json();
+    if (data?.enhanced_text) return data.enhanced_text;
+    if (Array.isArray(data.choices) && data.choices[0]?.text)
+      return data.choices[0].text;
+    // fallback
+    return data.toString();
+  }
+
+  // ---- UI Render ----
+
   return (
-    <div
-      className="app"
-      style={{
-        background: COLORS.background,
-        color: COLORS.text,
-        minHeight: "100vh"
-      }}
-    >
-      <TopBar
-        searchQuery={searchQuery}
-        onSearchChange={handleSearchChange}
-        onAddTask={openAddTaskModal}
-        openRemindersPanel={() => setRemindersOpen(true)}
-        colors={COLORS}
-      />
-
-      <div style={{
-        display: "flex",
-        flexDirection: "row",
-        maxWidth: 1200,
-        margin: "80px auto 0 auto",
-        boxShadow: `0 2px 16px 0 rgba(0,0,0,.07)`,
-        borderRadius: 18,
-        overflow: "hidden",
-        background: COLORS.light,
-        minHeight: 640
-      }}>
-        <Sidebar
-          categories={categories}
-          selectedId={selectedCategory}
-          onSelect={handleCategorySelect}
-          onAddCategory={addCategory}
-          colors={COLORS}
-        />
-        <main style={{ flex: 2, minWidth: 0, background: "#f7fafd" }}>
-          <div style={{ padding: "38px 32px 0 32px" }}>
-            <ProgressStatistics percent={percentComplete} completed={completedCount} total={totalCount} colors={COLORS} />
-            <TaskList
-              tasks={filteredTasks}
-              onEditTask={openEditTaskModal}
-              onDeleteTask={deleteTask}
-              onToggleComplete={toggleComplete}
-              categories={categories}
-              colors={COLORS}
-            />
-          </div>
-        </main>
-      </div>
-
-      {isAddEditModalOpen && (
-        <TaskModal
-          open={isAddEditModalOpen}
-          onClose={closeModal}
-          onAdd={addTask}
-          onEdit={updateTask}
-          editingTask={editingTask}
-          categories={categories}
-          initialFocusRef={modalInitialFocusRef}
-          colors={COLORS}
-        />
-      )}
-
-      {isRemindersOpen && (
-        <RemindersPanel
-          open={isRemindersOpen}
-          reminders={upcomingReminders}
-          onClose={() => setRemindersOpen(false)}
-          categories={categories}
-          colors={COLORS}
-        />
-      )}
-
-      {/* Light footer */}
-      <footer style={{ textAlign: "center", color: "#bdbdbd", margin: "36px 0 16px 0", fontSize: 14 }}>
-        SmartTask Pro &copy; 2024
+    <div className="app" style={{
+      minHeight: "100vh",
+      background: "var(--base-dark)",
+      color: "var(--text-color)",
+      paddingBottom: "40px",
+    }}>
+      <header className="navbar">
+        <div className="logo">
+          <span className="logo-symbol">★</span> Smart To-Do List
+        </div>
+      </header>
+      <main className="container" style={{ maxWidth: 540, margin: "120px auto 0", }}>
+        <h1 className="title" style={{ fontSize: 40, marginBottom: 4 }}>Smart To-Do List <span role="img" aria-label="AI">🤖</span></h1>
+        <div className="description" style={{ marginBottom: 22 }}>
+          Add a task. An AI will clarify or polish it for you. Each entry shows both your original wording and the improved version.
+        </div>
+        <form className="add-task-form" onSubmit={handleAddTask} style={{ display: "flex", gap: 10, marginBottom: 32 }}>
+          <input
+            type="text"
+            value={input}
+            placeholder="What do you need to do?"
+            onChange={e => setInput(e.target.value)}
+            disabled={adding}
+            style={{
+              flex: 1,
+              padding: "13px 13px",
+              fontSize: 17,
+              borderRadius: 7,
+              border: "1px solid var(--kavia-orange, #767676)"
+            }}
+            maxLength={120}
+            aria-label="Add task"
+          />
+          <button className="btn btn-large" type="submit" disabled={adding || !input.trim()} style={{ fontWeight: 700 }}>
+            {adding ? "Adding..." : "+ Add"}
+          </button>
+        </form>
+        {error && <div style={{ color: "#ff6868", marginBottom: 18 }}>{error}</div>}
+        <ol style={{ padding: 0, margin: 0, listStyle: "none" }}>
+          {tasks.length === 0 && (
+            <div style={{ color: "#aaa", fontSize: 17, marginTop: 33, textAlign: "center" }}>No tasks yet. Add your first one!</div>
+          )}
+          {tasks.map(t =>
+            <li key={t.id} style={{
+              background: "#fff",
+              color: "#181818",
+              borderRadius: 11,
+              marginBottom: 22,
+              boxShadow: "0 2px 10px 0 rgba(24,25,37,.10)",
+              display: "flex",
+              alignItems: "flex-start",
+              padding: "18px 18px 16px 18px",
+              position: "relative",
+              opacity: t.completed ? 0.56 : 1,
+              borderLeft: t.completed ? "6px solid #cccccc" : "6px solid var(--kavia-orange, #E87A41)"
+            }}>
+              <input
+                type="checkbox"
+                checked={t.completed}
+                onChange={() => handleToggleComplete(t.id)}
+                style={{
+                  width: 22,
+                  height: 22,
+                  accentColor: "var(--kavia-orange, #E87A41)",
+                  marginTop: 8
+                }}
+                aria-label={t.completed ? "Mark as incomplete" : "Mark as complete"}
+                title={t.completed ? "Mark as incomplete" : "Mark as complete"}
+              />
+              <div style={{ flex: 1, marginLeft: 13, minWidth: 0 }}>
+                {/* Edit mode */}
+                {editId === t.id ? (
+                  <div style={{ display: "flex", gap: 9, alignItems: "center" }}>
+                    <input
+                      autoFocus
+                      value={editValue}
+                      onChange={e => setEditValue(e.target.value)}
+                      style={{
+                        flex: 1,
+                        fontSize: 17,
+                        padding: "9px 10px",
+                        border: "1px solid #afafaf",
+                        borderRadius: 7
+                      }}
+                      maxLength={120}
+                      aria-label="Edit task"
+                      onKeyDown={e => {
+                        if (e.key === "Enter") handleEditSave(t.id);
+                        if (e.key === "Escape") handleEditCancel();
+                      }}
+                      disabled={loadingId === t.id}
+                    />
+                    <button
+                      className="btn"
+                      type="button"
+                      disabled={loadingId === t.id}
+                      style={{ background: "var(--kavia-orange, #E87A41)", color: "#fff", padding: "8px 18px", borderRadius: 8, fontWeight: 700, marginLeft: 3 }}
+                      onClick={() => handleEditSave(t.id)}
+                    >Save</button>
+                    <button
+                      className="btn"
+                      type="button"
+                      style={{ background: "#dae1e6", color: "#444", padding: "8px 12px", borderRadius: 8, marginLeft: 0 }}
+                      onClick={handleEditCancel}
+                    >Cancel</button>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{
+                      fontWeight: 600,
+                      fontSize: 19,
+                      textDecoration: t.completed ? "line-through" : undefined,
+                      color: t.completed ? "#aaa" : "#222",
+                      wordBreak: "break-word",
+                      marginBottom: 2,
+                    }}>{t.original}</div>
+                    <div style={{
+                      color: "#f48436",
+                      fontSize: 15,
+                      marginBottom: 3,
+                      fontWeight: 500,
+                      wordBreak: "break-word",
+                      opacity: 0.95
+                    }}>
+                      {t.enhanced === null
+                        ? (loadingId === t.id ? <span>Enhancing... <Spinner /></span> : <span style={{ color: "#aaa" }}>(waiting for AI...)</span>)
+                        : t.enhanced}
+                    </div>
+                  </>
+                )}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginLeft: 14, minWidth: 48 }}>
+                {editId == null && (
+                  <>
+                    <button
+                      className="btn"
+                      onClick={() => handleEdit(t.id, t.original)}
+                      aria-label="Edit"
+                      title="Edit"
+                      style={{ background: "#fff2ee", color: "#E87A41", fontWeight: 700, borderRadius: "50%", width: 36, height: 36, padding: 0, fontSize: 19, border: "1.6px solid #ffcdb7" }}>
+                      ✎
+                    </button>
+                    <button
+                      className="btn"
+                      onClick={() => handleDelete(t.id)}
+                      aria-label="Delete"
+                      title="Delete"
+                      style={{ background: "#f44336", color: "#fff", borderRadius: "50%", width: 36, height: 36, padding: 0, fontSize: 20 }}>
+                      🗑
+                    </button>
+                  </>
+                )}
+              </div>
+            </li>
+          )}
+        </ol>
+      </main>
+      <footer style={{ textAlign: "center", color: "#bdbdbd", margin: "42px 0 10px 0", fontSize: 14 }}>
+        Smart To-Do List &copy; {new Date().getFullYear()} <span style={{ color: "#26d9ff" }}>AI powered</span>
       </footer>
     </div>
   );
 }
 
-// -------------------------------
-// SIDEBAR
-function Sidebar({ categories, selectedId, onSelect, onAddCategory, colors }) {
-  const [isAdding, setAdding] = useState(false);
-  const [newCatName, setNewCatName] = useState('');
-  // PUBLIC_INTERFACE
-  function handleAdd() {
-    if (!newCatName.trim()) return;
-    onAddCategory(newCatName, undefined);
-    setNewCatName('');
-    setAdding(false);
-  }
+// PUBLIC_INTERFACE
+function Spinner() {
   return (
-    <aside style={{
-      width: 220,
-      background: "#f3f6fa",
-      borderRight: `1px solid ${colors.border}`,
-      padding: 0,
-      minHeight: "100%",
-      display: "flex",
-      flexDirection: "column"
-    }}>
-      <div style={{ fontWeight: 600, fontSize: 18, color: colors.primary, textAlign: "center", padding: "36px 8px 20px 8px" }}>
-        Categories
-      </div>
-      <ul style={{ flex: 1, padding: 0, margin: 0, listStyle: "none" }}>
-        {categories.map(cat =>
-          <li key={cat.id}>
-            <button
-              onClick={() => onSelect(cat.id)}
-              style={{
-                width: "94%",
-                margin: "4px 0 4px 3%",
-                padding: "10px 12px",
-                border: 0,
-                background: selectedId === cat.id ? colors.primary : "#f3f6fa",
-                color: selectedId === cat.id ? "#fff" : "#333",
-                borderRadius: 7,
-                textAlign: "left",
-                cursor: "pointer",
-                fontWeight: "500",
-                fontSize: 16,
-                display: "flex",
-                alignItems: "center",
-                gap: 8
-              }}
-            >
-              <span style={{
-                display: "inline-block",
-                background: cat.color,
-                width: 14, height: 14, borderRadius: 3,
-                marginRight: 7,
-                verticalAlign: "middle"
-              }}></span>
-              {cat.name}
-            </button>
-          </li>
-        )}
-      </ul>
-      <div style={{ padding: "0 15px 20px 15px" }}>
-        {isAdding ? (
-          <form
-            style={{ display: "flex", gap: 7 }}
-            onSubmit={e => { e.preventDefault(); handleAdd(); }}>
-            <input
-              value={newCatName}
-              onChange={e => setNewCatName(e.target.value)}
-              type="text"
-              placeholder="New Category"
-              maxLength={24}
-              autoFocus
-              style={{ flex: 1, padding: 6, borderRadius: 4, border: "1px solid #ccc", background: "#fff" }}
-            />
-            <button
-              title="Add"
-              style={{ background: colors.accent, border: 0, borderRadius: 4, color: "#fff", padding: "0 9px", fontWeight: 600 }}
-              type="submit"
-            >+</button>
-            <button
-              type="button"
-              aria-label="Cancel"
-              style={{ color: "#888", background: "none", border: 0, fontSize: 20, marginLeft: -2 }}
-              onClick={() => { setAdding(false); setNewCatName(''); }}>×</button>
-          </form>
-        ) : (
-          <button className="btn" onClick={() => setAdding(true)}
-            style={{ background: colors.secondary, color: "#fff", fontWeight: 600, width: "100%", borderRadius: 5, padding: "8px 0", fontSize: 15 }}>
-            + Add Category
-          </button>
-        )}
-      </div>
-    </aside>
+    <span style={{
+      display: "inline-block",
+      width: "14px",
+      height: "14px",
+      border: "2.3px solid #e99441",
+      borderTop: "2.3px solid #fff",
+      borderRadius: "50%",
+      verticalAlign: "middle",
+      marginRight: 4,
+      animation: "spin 1s linear infinite"
+    }} />
   );
 }
 
-// -------------------------------
-// TOP BAR
-function TopBar({ searchQuery, onSearchChange, onAddTask, openRemindersPanel, colors }) {
-  return (
-    <header className="navbar" style={{
-      background: colors.primary, color: "#fff", position: "fixed", width: "100%",
-      top: 0, left: 0, zIndex: 100, minHeight: 64, borderBottom: "2px solid #174a8b"
-    }}>
-      <div className="container" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div className="logo" style={{ color: "#fff", fontWeight: 700, fontSize: 22 }}>
-          <span style={{ color: colors.accent, fontWeight: 800, fontSize: 25, marginRight: 8 }}>★</span>
-          SmartTask Pro
-        </div>
-        <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 18, marginLeft: 40 }}>
-          <input
-            type="text"
-            placeholder="Search tasks…"
-            value={searchQuery}
-            onChange={onSearchChange}
-            style={{
-              border: 0,
-              borderRadius: 7,
-              padding: "9px 16px",
-              fontSize: 16,
-              background: "#fff",
-              color: "#222",
-              minWidth: 210,
-              boxShadow: "0 0 0 1px #eee",
-              marginRight: 8
-            }}
-          />
-          <button onClick={onAddTask} className="btn" style={{ background: colors.accent, color: "#111", borderRadius: 7, fontWeight: 600 }}>+ Task</button>
-          <button
-            onClick={openRemindersPanel}
-            className="btn"
-            aria-label="Show Reminders"
-            title="Show Reminders"
-            style={{
-              background: "#fff", color: colors.primary, borderRadius: "50%",
-              width: 38, height: 38, textAlign: "center", padding: 0, fontSize: 21,
-              fontWeight: 600, marginLeft: 10, border: "1px solid #e4eaff"
-            }} >
-            <span role="img" aria-label="Reminders">⏰</span>
-          </button>
-        </div>
-      </div>
-    </header>
-  );
+// CSS for spinner animation (could go in App.css, here for self-containment)
+const styleTag = document.createElement("style");
+styleTag.innerHTML = `
+@keyframes spin {
+  to { transform: rotate(360deg);}
 }
-
-// -------------------------------
-// TASK LIST & TASK ITEM
-function TaskList({ tasks, onEditTask, onDeleteTask, onToggleComplete, categories, colors }) {
-  if (tasks.length === 0) {
-    return <div style={{ textAlign: "center", fontWeight: 500, color: "#bbb", paddingTop: 38, fontSize: 18 }}>No tasks found.</div>
-  }
-  return (
-    <div>
-      <h2 style={{ fontWeight: 600, fontSize: 28, margin: "0 0 18px 0", color: colors.primary }}>Tasks</h2>
-      <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-        {tasks.map(task => (
-          <TaskItem
-            key={task.id}
-            task={task}
-            onEdit={() => onEditTask(task)}
-            onDelete={() => onDeleteTask(task.id)}
-            onToggleComplete={() => onToggleComplete(task.id)}
-            category={categories.find(cat => cat.id === task.category)}
-            colors={colors}
-          />
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function TaskItem({ task, onEdit, onDelete, onToggleComplete, category, colors }) {
-  // Show reminder time if available
-  return (
-    <li style={{
-      background: "#fff",
-      borderRadius: 11,
-      marginBottom: 17,
-      boxShadow: "0 2px 12px 0 rgba(24,25,37,.06)",
-      display: "flex",
-      alignItems: "flex-start",
-      padding: "18px 20px 15px 20px",
-      borderLeft: `6px solid ${category?.color || colors.primary}`,
-      opacity: task.completed ? 0.65 : 1
-    }}>
-      <input
-        type="checkbox"
-        checked={task.completed}
-        onChange={onToggleComplete}
-        style={{ width: 20, height: 20, accentColor: colors.primary, marginTop: 4 }}
-        aria-label={task.completed ? "Mark as incomplete" : "Mark as complete"}
-        title={task.completed ? "Mark as incomplete" : "Mark as complete"}
-      />
-      <div style={{ flex: 1, marginLeft: 14 }}>
-        <div style={{
-          fontWeight: 600,
-          fontSize: 19,
-          textDecoration: task.completed ? "line-through" : undefined,
-          color: "#262a33"
-        }}>{task.title}
-          <span style={{
-            background: category?.color || colors.secondary,
-            color: "#fff", borderRadius: 5, fontSize: 11,
-            padding: "2px 8px", marginLeft: 9, verticalAlign: "top"
-          }}>
-            {category?.name}
-          </span>
-        </div>
-        {task.notes && (
-          <div style={{ color: "#7a7a7a", fontSize: 15, marginTop: 3 }}>{task.notes}</div>
-        )}
-        {task.reminder && (
-          <div style={{ fontSize: 13, color: colors.accent, fontWeight: 500, marginTop: 3 }}>
-            ⏰ Reminds at {new Date(task.reminder).toLocaleString()}
-          </div>
-        )}
-        <div style={{ marginTop: 10, fontSize: 13, color: "#b5b5be" }}>
-          Created: {new Date(task.created).toLocaleDateString()}
-          {task.updated && <span> · Updated: {new Date(task.updated).toLocaleDateString()}</span>}
-        </div>
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 5, marginLeft: 14 }}>
-        <button
-          className="btn"
-          onClick={onEdit}
-          aria-label="Edit"
-          title="Edit"
-          style={{
-            background: colors.primary,
-            color: "#fff", borderRadius: "50%", width: 34, height: 34, padding: 0, fontSize: 17, marginBottom: 1
-          }}>
-          ✎
-        </button>
-        <button
-          className="btn"
-          onClick={onDelete}
-          aria-label="Delete"
-          title="Delete"
-          style={{
-            background: "#f44336",
-            color: "#fff", borderRadius: "50%", width: 34, height: 34, padding: 0, fontSize: 19
-          }}>
-          🗑
-        </button>
-      </div>
-    </li>
-  );
-}
-
-// -------------------------------
-// TASK MODAL (ADD/EDIT)
-function TaskModal({ open, onClose, onAdd, onEdit, editingTask, categories, initialFocusRef, colors }) {
-  const [title, setTitle] = useState(editingTask ? editingTask.title : '');
-  const [notes, setNotes] = useState(editingTask ? editingTask.notes : '');
-  const [category, setCategory] = useState(editingTask ? editingTask.category : categories[1]?.id || 'work');
-  const [reminder, setReminder] = useState(editingTask && editingTask.reminder ? editingTask.reminder.slice(0, 16) : '');
-  // PUBLIC_INTERFACE
-  function handleSubmit(e) {
-    e.preventDefault();
-    if (!title.trim()) return;
-    const taskData = {
-      ...editingTask,
-      title: title.trim(),
-      notes: notes.trim(),
-      category,
-      reminder: reminder ? new Date(reminder).toISOString() : null,
-      completed: editingTask ? editingTask.completed : false
-    };
-    if (editingTask) {
-      onEdit(taskData);
-    } else {
-      onAdd(taskData);
-    }
-    onClose();
-  }
-  return (
-    <div style={{
-      position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
-      background: "rgba(0,0,0,0.2)", zIndex: 300,
-      display: "flex", alignItems: "center", justifyContent: "center"
-    }}
-      tabIndex={-1}
-      aria-modal="true"
-      onClick={onClose}
-    >
-      <form
-        autoComplete="off"
-        onSubmit={handleSubmit}
-        style={{
-          background: "#fff",
-          minWidth: 320, maxWidth: 400,
-          borderRadius: 11, boxShadow: "0 4px 32px 0 rgba(21,31,61,.17)",
-          padding: "35px 30px 28px 30px",
-          display: "flex",
-          flexDirection: "column",
-          gap: 17,
-          position: "relative"
-        }}
-        onClick={e => e.stopPropagation()}
-      >
-        <div style={{
-          position: "absolute", right: 20, top: 16, fontSize: 25,
-          color: "#b6b6c6", cursor: "pointer"
-        }} tabIndex={0}
-          aria-label="Close"
-          onClick={onClose}
-        >×</div>
-        <h3 style={{ marginBottom: 2, fontWeight: 700, color: colors.primary }}>
-          {editingTask ? "Edit Task" : "Add Task"}
-        </h3>
-        <input
-          ref={initialFocusRef}
-          required
-          autoFocus
-          placeholder="Task title"
-          maxLength={48}
-          value={title}
-          onChange={e => setTitle(e.target.value)}
-          style={{ padding: "10px 12px", borderRadius: 7, border: "1px solid #a6b2d2", fontSize: 17 }}
-        />
-        <textarea
-          placeholder="Notes (optional)"
-          maxLength={100}
-          value={notes}
-          onChange={e => setNotes(e.target.value)}
-          style={{ padding: "9px 12px", borderRadius: 6, border: "1px solid #d0d0e6", fontSize: 15, minHeight: 44 }}
-        />
-        <div style={{ display: "flex", gap: 10 }}>
-          <select
-            value={category}
-            onChange={e => setCategory(e.target.value)}
-            style={{ flex: 1, padding: "9px 8px", borderRadius: 6, border: "1px solid #c9cedc", fontSize: 15 }}
-          >
-            {categories.filter(c => c.id !== "all").map(cat =>
-              <option key={cat.id} value={cat.id}>{cat.name}</option>
-            )}
-          </select>
-          <input
-            type="datetime-local"
-            value={reminder}
-            onChange={e => setReminder(e.target.value)}
-            style={{ flex: 1.5, padding: "8px", borderRadius: 6, border: "1px solid #dedede", fontSize: 15 }}
-            min={new Date().toISOString().slice(0, 16)}
-          />
-        </div>
-        <button
-          type="submit"
-          className="btn btn-large"
-          style={{ background: colors.accent, color: "#181818", border: 0, borderRadius: 7, fontWeight: 700, fontSize: 17 }}>
-          {editingTask ? "Save" : "Add"}
-        </button>
-      </form>
-    </div>
-  );
-}
-
-// -------------------------------
-// PROGRESS STATS
-function ProgressStatistics({ percent, completed, total, colors }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 19, marginBottom: 34 }}>
-      <div style={{ fontWeight: 600, color: COLORS.secondary, fontSize: 15 }}>
-        Progress: {completed}/{total}
-      </div>
-      <div style={{ flex: 1, height: 19, background: "#eaeaea", borderRadius: 7, overflow: "hidden" }}>
-        <div style={{
-          background: `linear-gradient(90deg, ${colors.primary}, ${colors.accent})`,
-          width: `${percent}%`, height: "100%",
-          transition: "width .36s", borderRadius: 7
-        }} />
-      </div>
-      <div style={{ color: colors.primary, fontWeight: 700, fontSize: 15 }}>{percent}%</div>
-    </div>
-  );
-}
-
-// -------------------------------
-// REMINDERS PANEL
-function RemindersPanel({ open, reminders, onClose, categories, colors }) {
-  return (
-    <div style={{
-      position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
-      background: "rgba(0,0,0,0.24)", zIndex: 400,
-      display: "flex", alignItems: "center", justifyContent: "center"
-    }}
-      tabIndex={-1}
-      aria-modal="true"
-      onClick={onClose}
-    >
-      <div
-        style={{
-          background: "#fff",
-          minWidth: 320,
-          maxWidth: 420,
-          borderRadius: 12,
-          boxShadow: "0 6px 24px 0 rgba(21,31,61,.24)",
-          padding: "34px 20px 29px 23px",
-          position: "relative"
-        }}
-        onClick={e => e.stopPropagation()}
-      >
-        <div style={{
-          position: "absolute", right: 18, top: 13, fontSize: 22,
-          color: "#b1b1be", cursor: "pointer"
-        }} tabIndex={0}
-          aria-label="Close"
-          onClick={onClose}
-        >×</div>
-        <h3 style={{ margin: 0, color: colors.primary, fontWeight: 700 }}>
-          Upcoming Reminders
-        </h3>
-        <ol style={{ margin: "23px 0 0 9px", padding: 0 }}>
-          {reminders.length === 0 ?
-            <div style={{ color: "#bbb", fontWeight: 500, fontSize: 16, marginTop: 11 }}>
-              No upcoming reminders.
-            </div>
-            : reminders.map(t => (
-              <li key={t.id} style={{ marginBottom: 14, fontSize: 16, color: "#272a2e" }}>
-                <span style={{
-                  display: "inline-block", width: 12, height: 12,
-                  background: categories.find(c => c.id === t.category)?.color || "#aac",
-                  borderRadius: 3, marginRight: 7,
-                }} />
-                <span style={{ fontWeight: 600, marginRight: 8 }}>{t.title}</span>
-                <span style={{ color: colors.accent, fontWeight: 500, marginLeft: 4 }}>
-                  at {new Date(t.reminder).toLocaleString()}
-                </span>
-                <span style={{
-                  fontSize: 11, padding: "1px 6px", background: "#ececec",
-                  borderRadius: 4, color: "#777", marginLeft: 10
-                }}>
-                  {categories.find(c => c.id === t.category)?.name || ""}
-                </span>
-              </li>
-            ))
-          }
-        </ol>
-      </div>
-    </div>
-  );
-}
+`;
+document.head.appendChild(styleTag);
 
 export default App;
